@@ -1,7 +1,7 @@
 import torch
 
-from networks import *
-from utils import *
+from src.networks import *
+from src.utils import *
 import torch.optim as optim
 import os
 import random
@@ -703,6 +703,16 @@ class Agent_TD3_4():
             next_values_1 = torch.min(next_values1, next_values2)
             next_values_2 = torch.min(next_values3, next_values4)
             next_values = torch.min(next_values_1, next_values_2)
+        elif self.mode == "median":
+            vector=[]
+            for i in range(0, len(next_values1)):
+                d = torch.stack((next_values1[i], next_values3[i],next_values3[i],next_values4[i]))
+                c= torch.median(d,dim=0).values
+                c = c.cpu().data.numpy()[0]
+                vector.append(c)
+
+            next_values= torch.from_numpy(np.array(vector)).resize(len(vector),1).to(self.DEVICE)
+
         # G_t   = r + gamma * v(s_{t+1})  if state != Terminal
         #       = r                       otherwise
         Q_targets = rewards + (self.GAMMA * next_values * (1 - dones))
@@ -800,6 +810,7 @@ class Agent_D4PG():
         """
         self.DEVICE = device
         self.train = train
+        self.mode = "D4PG"
         # transition (state, log_prob, next_state, reward, done)
         self.transition: list = list()
         # algo number

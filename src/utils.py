@@ -184,13 +184,10 @@ def plot_scores(scores , algo, num_episodes, mode):
     elif algo == "4":
         text = f"TD3 Agent 4 DQN with {mode}"
     elif algo == "5":
-        text = "Dueling Noisy DQN Agent with Priority Buffer"
+        text = "D4PG Agent"
     elif algo == "6":
-        text = "DQN n-Steps Agent"
-    elif algo == "7":
-        text = "DQN Rainbow Agent"
-    elif algo == "8":
-        text = "Dueling Noisy DQN Agent No PER"
+        text = f"TD3 Agent 4 DQN with {mode}"
+
     plt.figure(figsize=(16, 12))
     plt.subplot(111)
     plt.title(f'Algo {text} Number episodes {num_episodes}')
@@ -218,13 +215,10 @@ def plot_losses(losses , algo, num_episodes, type, mode):
     elif algo == "4":
         text = f"TD3 Agent 4 DQN with {mode}"
     elif algo == "5":
-        text = "Dueling Noisy DQN Agent with Priority Buffer"
+        text = "D4PG Agent"
     elif algo == "6":
-        text = "DQN n-Steps Agent"
-    elif algo == "7":
-        text = "DQN Rainbow Agent"
-    elif algo == "8":
-        text = "Dueling Noisy DQN Agent No PER"
+        text =  f"TD3 Agent 4 DQN with {mode}"
+
     plt.figure(figsize=(16, 12))
     plt.subplot(111)
     plt.title(f'Algo {text} Number episodes {num_episodes}')
@@ -247,5 +241,105 @@ def save_pickle(outputs, scores, loss_actor, loss_critic, mode, fname, algo, tim
 
     with open(fname, 'wb') as handle:
         pickle.dump(outputs, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+    return
+
+def plot_scores_training_all():
+    """
+    plot all scores 2000 episodes
+    """
+    with open('outputs/outcomes.pkl', 'rb') as handle:
+        data = pickle.load(handle)
+    labels = []
+    text = f"DDPG Agent ({max(data['1_DDPG']['scores']).round(2)})"
+    labels.append("DDPG Agent ")
+    num_episodes = "1000"
+    plt.figure(figsize=(16, 12))
+    plt.subplot(111)
+    plt.title(f'All Algorithm scores after solve environment score 35 average')
+    plt.axhline(y=30, color='r', linestyle='dotted')
+    plt.plot(np.arange(len(data['1_DDPG']['scores'])), data['1_DDPG']['scores'], label=text)
+    text = f"TD3 (Twined Delayed DDPG) ({max(data['2_TD3']['scores']).round(2)})"
+    labels.append("TD3 (Twined Delayed DDPG)")
+    plt.plot(np.arange(len(data['2_TD3']['scores'])), data['2_TD3']['scores'], label=text)
+    text = f"TD3 Agent with 4 DQN and min loss ({max(data['3_min']['scores']).round(2)})"
+    labels.append("TD3 Agent with 4 DQN and min loss")
+    plt.plot(np.arange(len(data['3_min']['scores'])), data['3_min']['scores'], label=text)
+    text = f"TD3 Agent with 4 DQN and mean loss ({max(data['4_mean']['scores']).round(2)})"
+    labels.append("TD3 Agent with 4 DQN and mean loss")
+    plt.plot(np.arange(len(data['4_mean']['scores'])), data['4_mean']['scores'], label=text)
+    text = f"TD3 Agent with 4 DQN and median loss ({max(data['6_median']['scores']).round(2)})"
+    labels.append("TD3 Agent with 4 DQN and median loss")
+    plt.plot(np.arange(len(data['6_median']['scores'])), data['6_median']['scores'], label=text)
+
+    plt.ylabel('Score')
+    plt.xlabel('Episode #')
+    title = "Algorithm and Max Score"
+    plt.legend(title=title)
+    plt.savefig(f'images/scores_all.jpg')
+    return labels
+
+def plot_play_scores(labels):
+    """
+
+    """
+
+    with open('outputs/outcomes.pkl', 'rb') as handle:
+        data = pickle.load(handle)
+
+    num_episodes = 2000
+    plt.figure(figsize=(16, 12))
+    plt.subplot(111)
+    plt.title(f'All Algorithm scores playing with best policy after solve the environment')
+
+    scores = []
+    types = []
+    for key in data.keys():
+        scores.append(data[key]['score_play'])
+        sc = data[key]['score_play']
+        if key == "6_median":
+            key = "5_median"
+        types.append(key[:1])
+        plt.bar(int(key[:1]), sc, label=labels[int(key[:1]) - 1] + " " +str(round(sc,2)))
+    plt.ylabel('Score')
+    plt.xlabel('Algorithm #')
+    title = "Algorithm and reward in play mode"
+    plt.legend(title=title)
+    plt.ylim([0, 50])
+    plt.tight_layout()
+
+    plt.savefig(f'images/play_scores_all.jpg')
+    return
+
+def plot_time_all(labels):
+
+    """
+    plot time to win env . Collect 13 yellow bananas
+    """
+    with open('outputs/outcomes.pkl', 'rb') as handle:
+        data = pickle.load(handle)
+
+    num_episodes = 2000
+    plt.figure(figsize=(16, 12))
+    plt.subplot(111)
+    plt.title(f'All Algorithm time to solve the environment. mean during at least 100 episodes of 35')
+
+    scores = []
+    types = []
+    for key in data.keys():
+        scores.append(data[key]['time'])
+        sc = data[key]['time']
+        if key == "6_median":
+            key = "5_median"
+        types.append(key[:1])
+
+        plt.bar(int(key[:1]), sc, label=labels[int(key[:1]) - 1] + " " +str(round(sc,0)))
+    plt.ylabel('Time')
+    plt.xlabel('Algorithm #')
+    title = "Algorithm and Time to solve Env"
+    plt.legend(title=title)
+    plt.ylim([0, 20000])
+    plt.tight_layout()
+    plt.savefig(f'images/time_scores_all.jpg')
 
     return

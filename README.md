@@ -112,6 +112,7 @@ all args are mandatory
 * type 3--> TD3 with 4 DQN critic Networks min selection
 * type 4--> TD3 with 4 DQN critic Networks mean selection
 * type 5--> D4PG (Distributed Distributional Deterministic Policy Gradients)
+* type 6--> TD3 with 4 DQN critic Networks median selection
 
 --agent --> Mandatory
 * 1 Reacher with 1 Arm
@@ -141,44 +142,31 @@ Ex. python main.py --mode training --type 1 –agent 1
   - Reacher Unity environments
 
 
-* ![img_3.png](./images/dir.png)
+![img_3.png](./images/dir.png)
 
 
-the script during training is printing the average reward every episode
+* the script during training is printing the average reward every episode
 
 ![img_3.png](./images/Picture1.png)
 
-also the script track the configuration of the algorithm and mode use on training or play modes in a csv file
 
-![Picture2](./images/Picture2.png)
-
-and during training mode we save loss and rewards to finally plot them one the game finish, which is either after 2000
-episodes or where the agent reach 16 as reward in training
+* and during training mode we save loss and rewards to finally plot them one the game finish, which is either after 1000
+episodes or where the agent reach 35+  as reward in training
 
 Ex. Rewards
 ![rewards](./images/Picture3.png)
-### Mode Compare
-run all solvers 2000 episodes and collect statistics. Use run.bat
-### Mode Compare_plot
-Run all solvers in mode play and collect statistics. Use run_play.bat
+
 ### Mode plot
 after runing the application in mode compare and the compare_play, where the app collect information to later in mode 
 plot generate 5 graphs which compare the performance of the 8 solvers
 
 
-All algorithms Rewards after 2000 episodes
+All algorithms Rewards. Solve the environment 35+ as reward on average 100 Episodes
 
 ![all_scores](./images/scores_all.jpg)
 
-All algorithms Loss after 2000 episodes
 
-![all_losses](./images/losses_all.jpg)
-
-All algorithms Number of Episodes to win the Environtment (collect 13 yellow bananas)
-
-![all_episodes](./images/episodes_scores_all.jpg)
-
-All algorithms Time to win the Environtment (collect 13 yellow bananas)
+All algorithms Time to win the Environtment (reward 35+ average 100 episodes)
 
 ![all_time](./images/time_scores_all.jpg)
 
@@ -201,20 +189,24 @@ to 30 for this experiment
 
 ### References
 
-1.	V. Mnih et al., "Human-level control through deep reinforcement learning." Nature, 518 (7540):529–533, 2015.
-2.	van Hasselt et al., "Deep Reinforcement Learning with Double Q-learning." arXiv preprint arXiv:1509.06461, 2015.
-3.	T. Schaul et al., "Prioritized Experience Replay." arXiv preprint arXiv:1511.05952, 2015.
-4.	Z. Wang et al., "Dueling Network Architectures for Deep Reinforcement Learning." arXiv preprint arXiv:1511.06581, 2015.
-5.	M. Fortunato et al., "Noisy Networks for Exploration." arXiv preprint arXiv:1706.10295, 2017.
-6.	M. G. Bellemare et al., "A Distributional Perspective on Reinforcement Learning." arXiv preprint arXiv:1707.06887, 2017.
-7.	R. S. Sutton, "Learning to predict by the methods of temporal differences." Machine learning, 3(1):9–44, 1988.
-8.	M. Hessel et al., "Rainbow: Combining Improvements in Deep Reinforcement Learning." arXiv preprint arXiv:1710.02298, 2017.
-9.	https://github.com/Curt-Park/rainbow-is-all-you-need
-10.	Hands-on Reinforcement Learning for Games (Book) Michael Lanham
-11.	Grokking Deep Reinforcement Learning (Book) Miguel Morales
-12.	Hands-on Reinforcement Learning with Python (book) by Sudharsan Ravichandiran
-13.	binary sum-tree. See Appendix B.2.1. in https://arxiv.org/pdf/1511.05952.pdf. Adapted implementation from https://github.com/jaromiru/AI-blog/blob/master/SumTree.py  
-14.	SegmentTree from OpenAi repository. https://github.com/openai/baselines/blob/master/baselines/common/segment_tree.py
-15.	PER implementation. https://github.com/rlcode/per/blob/master/prioritized_memory.py
-16.	Noisy Layers . https://github.com/higgsfield/RL-Adventure/blob/master/5.noisy%20dqn.ipynb    https://github.com/Kaixhin/Rainbow/blob/master/model.py
+
+1. A2C Mnih, Volodymyr, et al. "Asynchronous methods for deep reinforcement learning." International conference on machine learning. 2016.
+2. PPO: J. Schulman et al., "Proximal Policy Optimization Algorithms." arXiv preprint arXiv:1707.06347, 2017.
+3. TRPO: Schulman, John, et al. "Trust region policy optimization." International conference on machine learning. 2015.
+4. DDPG:T. P. Lillicrap et al., "Continuous control with deep reinforcement learning." arXiv preprint arXiv:1509.02971, 2015.
+5. OU Noise https://github.com/udacity/deep-reinforcement-learning/blob/master/    ddpg-pendulum/ddpg_agent.py
+6. https://en.wikipedia.org/wiki/Ornstein%E2%80%93Uhlenbeck_process
+7. TD3 Fujimoto, Scott, Herke van Hoof, and David Meger. "Addressing function approximation error in actor-critic methods." arXiv preprint arXiv:1802.09477 2018.
+8. SAC T. Haarnoja et al., "Soft Actor-Critic: Off-Policy Maximum Entropy Deep Reinforcement Learning with a Stochastic Actor." arXiv preprint arXiv:1801.01290, 2018.
+9. T. Haarnoja et al., "Soft Actor-Critic Algorithms and Applications." arXiv preprint arXiv:1812.05905, 2018.
+10. D4PG https://openreview.net/pdf?id=SyZipzbCb
+11. https://github.com/Curt-Park/rainbow-is-all-you-need
+12. https://github.com/MrSyee/pg-is-all-you-need
+13. Hands-on Reinforcement Learning for Games (Book) Michael Lanham
+14. Grokking Deep Reinforcement Learning (Book) Miguel Morales
+15. Hands-on Reinforcement Learning with Python (book) by Sudharsan Ravichandiran
+16. binary sum-tree. See Appendix B.2.1. in https://arxiv.org/pdf/1511.05952.pdf. Adapted implementation from https://github.com/jaromiru/AI-blog/blob/master/SumTree.py  
+17. SegmentTree from OpenAi repository. https://github.com/openai/baselines/blob/master/baselines/common/segment_tree.py
+18. PER implementation. https://github.com/rlcode/per/blob/master/prioritized_memory.py
+19. https://pytorch.org/docs
 
