@@ -269,27 +269,26 @@ class Agent_TD3():
         self.total_step = 0
         # update step for actor
         self.update_step = 2
-
-        self.DEVICE = device
-        self.train = train
-        self.algo = algo
+        self.DEVICE = device # cpu/gpu
+        self.train = train # training / no training
+        self.algo = algo # cmd parameter type of algorithm
         self.mode = "TD3"
 
-        self.state_size = state_size
-        self.n_agents = n_agents
-        self.action_size = action_size
+        self.state_size = state_size # observation space size
+        self.n_agents = n_agents # number of agents
+        self.action_size = action_size # Action space size
         self.seed = random.seed(random_seed)
 
         # Hyperparameters
-        self.BUFFER_SIZE = buffer_size
-        self.BATCH_SIZE = batch_size
-        self.GAMMA = gamma
-        self.TAU = TAU
-        self.LR_ACTOR = lr_actor
-        self.LR_CRITIC = lr_critic
-        self.WEIGHT_DECAY = weight_decay
+        self.buffer_size = buffer_size
+        self.batch_size = batch_size
+        self.gamma = gamma
+        self.tau = TAU
+        self.lr_actor = lr_actor
+        self.lr_critic = lr_critic
+        self.weight_decay = weight_decay
 
-        self.CHECKPOINT_FOLDER = checkpoint_folder
+        self.chekpoint_folder = checkpoint_folder
 
         # noise
         # exploration
@@ -304,18 +303,18 @@ class Agent_TD3():
         # introduce noise / not introduce Noise
         self.action_noise = action_noise
 
-        # Actor Network (w/ Target Network)
+        # Actor Network (with Target Network)
         self.actor_local = Actor_TD3(state_size, action_size).to(self.DEVICE)
         self.actor_target = Actor_TD3(state_size, action_size).to(self.DEVICE)
-        self.actor_target.load_state_dict(self.actor_local.state_dict())
-        self.actor_optimizer = optim.Adam(self.actor_local.parameters(), lr=self.LR_ACTOR)
+        self.actor_target.load_state_dict(self.actor_local.state_dict()) # initialize
+        self.actor_optimizer = optim.Adam(self.actor_local.parameters(), lr=self.lr_actor)
 
-        # Critic Network 1 (w/ Target Network)
+        # Critic Network 1 (with Target Network)
         self.critic_local_1 = Critic_TD3(state_size+action_size).to(self.DEVICE)
         self.critic_target_1 = Critic_TD3(state_size+action_size).to(self.DEVICE)
-        self.critic_target_1.load_state_dict(self.critic_local_1.state_dict())
+        self.critic_target_1.load_state_dict(self.critic_local_1.state_dict()) # Initialize
 
-        # Critic Network 2 (w/ Target Network)
+        # Critic Network 2 (with Target Network)
         self.critic_local_2 = Critic_TD3(state_size+action_size).to(self.DEVICE)
         self.critic_target_2 = Critic_TD3(state_size+action_size).to(self.DEVICE)
         self.critic_target_2.load_state_dict(self.critic_local_2.state_dict())
@@ -325,19 +324,19 @@ class Agent_TD3():
         critic_parameters = list(self.critic_local_1.parameters()) + list(
             self.critic_local_2.parameters()
         )
-        self.critic_optimizer = optim.Adam(critic_parameters, lr=self.LR_CRITIC)
+        self.critic_optimizer = optim.Adam(critic_parameters, lr=self.lr_critic)
 
-        if os.path.isfile(self.CHECKPOINT_FOLDER + f'checkpoint_actor_{self.algo}.pth') and os.path.isfile \
-                (self.CHECKPOINT_FOLDER + f'checkpoint_critic_1_{self.algo}.pth') and os.path.isfile \
-                (self.CHECKPOINT_FOLDER + f'checkpoint_critic_2_{self.algo}.pth') and self.train==False:
+        if os.path.isfile(self.chekpoint_folder + f'checkpoint_actor_{self.algo}.pth') and os.path.isfile \
+                (self.chekpoint_folder + f'checkpoint_critic_1_{self.algo}.pth') and os.path.isfile \
+                (self.chekpoint_folder + f'checkpoint_critic_2_{self.algo}.pth') and self.train==False:
             # load models from files
-            self.actor_local.load_state_dict(torch.load(self.CHECKPOINT_FOLDER + f'checkpoint_actor_{self.algo}.pth'))
-            self.critic_local_1.load_state_dict(torch.load(self.CHECKPOINT_FOLDER + f'checkpoint_critic_1_{self.algo}.pth'))
-            self.critic_local_2.load_state_dict(torch.load(self.CHECKPOINT_FOLDER + f'checkpoint_critic_2_{self.algo}.pth'))
+            self.actor_local.load_state_dict(torch.load(self.chekpoint_folder + f'checkpoint_actor_{self.algo}.pth'))
+            self.critic_local_1.load_state_dict(torch.load(self.chekpoint_folder + f'checkpoint_critic_1_{self.algo}.pth'))
+            self.critic_local_2.load_state_dict(torch.load(self.chekpoint_folder + f'checkpoint_critic_2_{self.algo}.pth'))
 
 
         # Replay memory
-        self.memory = ReplayBuffer(device, action_size, self.BUFFER_SIZE, self.BATCH_SIZE, random_seed)
+        self.memory = ReplayBuffer(device, action_size, self.buffer_size, self.batch_size, random_seed)
         # losses
         self.losses_actor = []
         self.losses_critic = []
@@ -349,7 +348,7 @@ class Agent_TD3():
             self.memory.add(state[i ,:], action[i ,:], reward[i], next_state[i ,:], done[i])
 
         # Learn, if enough samples are available in memory
-        if len(self.memory) > self.BATCH_SIZE:
+        if len(self.memory) > self.batch_size:
             experiences = self.memory.sample()
             self.learn(experiences)
 
@@ -408,7 +407,7 @@ class Agent_TD3():
 
         # G_t   = r + gamma * v(s_{t+1})  if state != Terminal
         #       = r                       otherwise
-        Q_targets = rewards + (self.GAMMA * next_values * (1 - dones))
+        Q_targets = rewards + (self.gamma * next_values * (1 - dones))
         Q_targets = Q_targets.detach()
 
         # critic loss
@@ -459,7 +458,7 @@ class Agent_TD3():
             target_model: PyTorch model (weights will be copied to)
             tau (float): interpolation parameter
         """
-        tau = self.TAU
+        tau = self.tau
         for target_param, local_param in zip(target_model.parameters(), local_model.parameters()):
             target_param.data.copy_(tau *local_param.data + (1.0 -tau ) *target_param.data)
 
@@ -576,40 +575,40 @@ class Agent_TD3_4():
         # introduce noise / not introduce Noise
         self.action_noise = action_noise
 
-        # Actor Network (w/ Target Network)
+        # Actor Network (with Target Network)
         self.actor_local = Actor_TD3(state_size, action_size).to(self.DEVICE)
         self.actor_target = Actor_TD3(state_size, action_size).to(self.DEVICE)
-        self.actor_target.load_state_dict(self.actor_local.state_dict())
+        self.actor_target.load_state_dict(self.actor_local.state_dict()) # initialize
         self.actor_optimizer = optim.Adam(self.actor_local.parameters(), lr=self.LR_ACTOR)
 
-        # Critic Network 1 (w/ Target Network)
+        # Critic Network 1 (with Target Network)
         self.critic_local_1 = Critic_TD3(state_size+action_size).to(self.DEVICE)
         self.critic_target_1 = Critic_TD3(state_size+action_size).to(self.DEVICE)
-        self.critic_target_1.load_state_dict(self.critic_local_1.state_dict())
+        self.critic_target_1.load_state_dict(self.critic_local_1.state_dict())# initialize
 
-        # Critic Network 2 (w/ Target Network)
+        # Critic Network 2 (with Target Network)
         self.critic_local_2 = Critic_TD3(state_size+action_size).to(self.DEVICE)
         self.critic_target_2 = Critic_TD3(state_size+action_size).to(self.DEVICE)
-        self.critic_target_2.load_state_dict(self.critic_local_2.state_dict())
+        self.critic_target_2.load_state_dict(self.critic_local_2.state_dict())# initialize
 
-        # Critic Network 3 (w/ Target Network)
+        # Critic Network 3 (with Target Network)
         self.critic_local_3 = Critic_TD3(state_size + action_size).to(self.DEVICE)
         self.critic_target_3 = Critic_TD3(state_size + action_size).to(self.DEVICE)
-        self.critic_target_3.load_state_dict(self.critic_local_3.state_dict())
+        self.critic_target_3.load_state_dict(self.critic_local_3.state_dict())# initialize
 
-        # Critic Network 4 (w/ Target Network)
+        # Critic Network 4 (with Target Network)
         self.critic_local_4 = Critic_TD3(state_size + action_size).to(self.DEVICE)
         self.critic_target_4 = Critic_TD3(state_size + action_size).to(self.DEVICE)
-        self.critic_target_4.load_state_dict(self.critic_local_4.state_dict())
+        self.critic_target_4.load_state_dict(self.critic_local_4.state_dict())# initialize
 
         self.initial_random_steps =initial_random_steps
-        # concat critic parameters to use one optim
+        # concat critic parameters to use one optimizer
         critic_parameters = list(self.critic_local_1.parameters()) + list(
             self.critic_local_2.parameters()) + list(self.critic_local_3.parameters()) +  \
                             list(self.critic_local_4.parameters())
 
         self.critic_optimizer = optim.Adam(critic_parameters, lr=self.LR_CRITIC)
-
+        # load models in test mode
         if os.path.isfile(self.CHECKPOINT_FOLDER + f'checkpoint_actor_{self.mode}_{self.algo}.pth') and os.path.isfile \
                 (self.CHECKPOINT_FOLDER + f'checkpoint_critic_1_{self.mode}_{self.algo}.pth') and os.path.isfile \
                 (self.CHECKPOINT_FOLDER + f'checkpoint_critic_2_{self.mode}_{self.algo}.pth') and self.train==False:
@@ -628,12 +627,29 @@ class Agent_TD3_4():
 
         # Replay memory
         self.memory = ReplayBuffer(device, action_size, self.BUFFER_SIZE, self.BATCH_SIZE, random_seed)
-        # losses
+        # playholders to save loss of actor and critic
         self.losses_actor = []
         self.losses_critic = []
 
     def step(self, state, action, reward, next_state, done):
-        """Save experience in replay memory, and use random sample from buffer to learn."""
+        """
+        Agent step implementation
+        :param state: state t
+        :type state:  tensor
+        :param action: action t
+        :type action: tensor
+        :param reward: reward action t
+        :type reward: tensor
+        :param next_state: state t+1
+        :type next_state: tensor
+        :param done: done bool
+        :type done: bool
+        :return:
+        :rtype:
+        """
+        """
+        Save experience in replay memory, and use random sample from buffer to learn.
+        """
         # Save experience / reward
         for i in range(self.n_agents) :
             self.memory.add(state[i ,:], action[i ,:], reward[i], next_state[i ,:], done[i])

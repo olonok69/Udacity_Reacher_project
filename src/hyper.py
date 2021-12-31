@@ -1,7 +1,5 @@
 from hyperopt import hp, fmin, tpe, Trials, STATUS_OK, space_eval
-from src.agents import *
 from functools import partial
-
 from src.utils import *
 from src.agents import Agent_DDPG
 

@@ -14,14 +14,15 @@ def load_env(worker_id, base_port, file="./envs/Reacher_Windows_x86_64_20/Reache
     load Unity Environment
     :param worker_id: ID env
     :param base_port: communications port with unity agent
+    :param file: Unity executable
+    :param grap: If to show graphs or not. Typically in training I hide graphics
+    :param train: if train mode or test mode
     """
-
+    # load environtment
     env = UnityEnvironment(file_name=file, worker_id=worker_id, base_port=base_port, no_graphics=grap)
-
     # get the default brain
     brain_name = env.brain_names[0]
     brain = env.brains[brain_name]
-
     # number of actions
     action_size = brain.vector_action_space_size
     # reset the environment
@@ -33,7 +34,10 @@ def load_env(worker_id, base_port, file="./envs/Reacher_Windows_x86_64_20/Reache
     return env , brain_name, brain, action_size, env_info, state, state_size, n_agents
 
 class OUNoise:
-    """Ornstein-Uhlenbeck process."""
+    """
+    Ornstein-Uhlenbeck process.
+    credit to https://github.com/udacity/deep-reinforcement-learning/blob/master/ddpg-pendulum/ddpg_agent.py
+    """
 
     def __init__(self, size, seed, mu=0., theta=0.15, sigma=0.2):
         """Initialize parameters and noise process."""
@@ -56,8 +60,9 @@ class OUNoise:
         return self.state
 
 class GaussianNoise:
-    """Gaussian Noise.
-    Taken from https://github.com/vitchyr/rlkit
+    """
+    Gaussian Noise.
+    credits for https://github.com/vitchyr/rlkit
     """
 
     def __init__(
@@ -67,21 +72,32 @@ class GaussianNoise:
         max_sigma: float = 1.0,
         decay_period: int = 1000000,
     ):
-        """Initialize."""
+        """
+        Initialize.
+        """
         self.action_dim = action_dim
         self.max_sigma = max_sigma
         self.min_sigma = min_sigma
         self.decay_period = decay_period
 
     def sample(self, t: int = 0) -> float:
-        """Get an action with gaussian noise."""
+        """
+        Get gaussian noise to add to an action. Typically as is configured a random number between 0 and max_sigma
+        :param t: parameter to implement decay
+        :type t: int , default 0
+        :return: random normal between 0 and max_sigma
+        :rtype: float
+        """
+
         sigma = self.max_sigma - (self.max_sigma - self.min_sigma) * min(
             1.0, t / self.decay_period
         )
         return np.random.normal(0, sigma, size=self.action_dim)
 
 class ReplayBuffer:
-    """Fixed-size buffer to store experience tuples."""
+    """
+    Fixed-size buffer to store experience tuples.
+    """
 
     def __init__(self, device, action_size, buffer_size, batch_size, seed):
         """Initialize a ReplayBuffer object.
@@ -91,7 +107,6 @@ class ReplayBuffer:
             batch_size (int): size of each training batch
         """
         self.DEVICE = device
-
         self.action_size = action_size
         self.memory = deque(maxlen=buffer_size)  # internal memory (deque)
         self.batch_size = batch_size
@@ -99,12 +114,17 @@ class ReplayBuffer:
         self.seed = random.seed(seed)
 
     def add(self, state, action, reward, next_state, done):
-        """Add a new experience to memory."""
+        """
+        Add a new experience to memory.
+        """
         e = self.experience(state, action, reward, next_state, done)
         self.memory.append(e)
 
     def sample(self):
-        """Randomly sample a batch of experiences from memory."""
+        """
+        Randomly sample a batch of experiences from memory and push it to torch Device
+
+        """
         experiences = random.sample(self.memory, k=self.batch_size)
 
         states = torch.from_numpy(np.vstack([e.state for e in experiences if e is not None])).float().to(self.DEVICE)
@@ -118,7 +138,9 @@ class ReplayBuffer:
         return (states, actions, rewards, next_states, dones)
 
     def __len__(self):
-        """Return the current size of internal memory."""
+        """
+        Return the current size of internal memory.
+        """
         return len(self.memory)
 
 class Batcher:
@@ -171,6 +193,7 @@ def plot_scores(scores , algo, num_episodes, mode):
     plot scores and save to disk
     :param scores: list of scores during training
     :param algo: type algorithm
+    :param mode: Mode that use the algorithm or name of the algorithm
     :return:
     """
     # plot the scores
@@ -202,6 +225,7 @@ def plot_losses(losses , algo, num_episodes, type, mode):
     plot scores and save to disk
     :param scores: list of scores during training
     :param algo: type algorithm
+    :param mode: Mode that use the algorithm or name of the algorithm
     :return:
     """
     # plot the scores
@@ -229,6 +253,27 @@ def plot_losses(losses , algo, num_episodes, type, mode):
     return
 
 def save_pickle(outputs, scores, loss_actor, loss_critic, mode, fname, algo, times):
+    """
+    save outputs to pickle
+    :param outputs: pickle file
+    :type outputs:  pickle file
+    :param scores: vector of scores
+    :type scores: vector of float
+    :param loss_actor: loss actor each episode
+    :type loss_actor: vector of float
+    :param loss_critic: loss critic each episodes
+    :type loss_critic:  vector of floats
+    :param mode: Mode that use the algorithm or name of the algorithm
+    :type mode: string
+    :param fname: file name
+    :type fname: string
+    :param algo: number type algo. come from cmd parameters
+    :type algo: string
+    :param times: time consumed if training for this algo in seconds
+    :type times: float
+    :return:
+    :rtype:
+    """
     algor= algo + "_" + mode
     if not(algor in outputs.keys()):
         outputs[str(algor)]= {}
@@ -281,7 +326,7 @@ def plot_scores_training_all():
 
 def plot_play_scores(labels):
     """
-
+    plot scores in play mode per algorithm
     """
 
     with open('outputs/outcomes.pkl', 'rb') as handle:
@@ -314,7 +359,7 @@ def plot_play_scores(labels):
 def plot_time_all(labels):
 
     """
-    plot time to win env . Collect 13 yellow bananas
+    plot time to win env 35+ mean average 100 episodes
     """
     with open('outputs/outcomes.pkl', 'rb') as handle:
         data = pickle.load(handle)

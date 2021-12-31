@@ -3,17 +3,17 @@
 
 ### Introduction
 This repo contains my solution to the challenge for the project Continous control part of the Udacity Deep Reinforcement 
-Learning Nanodegree. My solution covers 4 different algorithms as I wanted to explore most of the possible 
-improvements to the well known Deep Deterministic Policy Gradient. The skeleton of this solution is based on the coding 
-Exercise on the actor-critic methods (DDPG) implementation of this program, while I also use other resources like books, 
-or public information available to learn and complete the solucion which I will detail on the references.
+Learning Nanodegree. My solution covers 2 different algorithms (DDPG and TD3)). In TD3 I have made some variants, while the author of the original paper propose, the minimum between the two estimates (implemented in type 2) , while here I create 3 new variants using 4 estimates (DQN critics Networks) and use minimum(type 3), mean(type 4) or Median(type 6) to select the estimate. The skeleton of this solution is based on the coding exercise on the actor-critic methods (DDPG) implementation of this program, while I also use other resources like books, or public information available to learn and complete the solution which I will detail on the references. The skeleton of this solution is based on the coding exercise on the actor-critic methods (DDPG) implementation of this program, while I also use other resources like books, or public information available to learn and complete the solution which I will detail on the references.
 
-The application solves the environment with the following 8 implementations
+The solution is fully tested with the 20 agent’s worker, and I made some test with the 1 Agent version using other algorithms like D4PG or A2C, but finally not included on the final release of this project.
+
+
+The application solves the environment with the following 5 implementations
 - Mode 1 Plain DDPG. (Deep Deterministic Policy Gradient)
 - Mode 2 TD3 (Twined Delayed DDPG)
-- Mode 3 TD3 with 4 DQN critic Networks min selection
-- Mode 4 TD3 with 4 DQN critic Networks mean selection
-- Mode 5 D4PG (Distributed Distributional Deterministic Policy Gradients)
+- Mode 3 TD3 with 4 DQN critic Networks estimate min selection
+- Mode 4 TD3 with 4 DQN critic Networks estimate mean selection
+- Mode 6 TD3 with 4 DQN critic Networks estimate median selection
 
 ### Installation
 My solution works as an stand alone application which run in a Windows Pro 10 64 bits command line window 
@@ -93,7 +93,7 @@ This yields an average score for each episode (where the average is over all 20 
 ### how to run this project
 
 on the main directory run python main.py --mode [training|play|plot|hp_tuning] 
-                                                --type[1,2,3,4,5]
+                                                --type[1,2,3,4,6]
                                                 -- agent [1,2]
 
 all args are mandatory
@@ -109,16 +109,15 @@ all args are mandatory
 
 * type 1--> Plain DDPG. (Deep Deterministic Policy Gradient) 
 * type 2--> TD3 (Twined Delayed DDPG) 
-* type 3--> TD3 with 4 DQN critic Networks min selection
-* type 4--> TD3 with 4 DQN critic Networks mean selection
-* type 5--> D4PG (Distributed Distributional Deterministic Policy Gradients)
-* type 6--> TD3 with 4 DQN critic Networks median selection
+* type 3--> TD3 with 4 DQN critic Networks min estimate selection
+* type 4--> TD3 with 4 DQN critic Networks mean estimate selection
+* type 6--> TD3 with 4 DQN critic Networks median estimate selection
 
 --agent --> Mandatory
 * 1 Reacher with 1 Arm
 * 2 Reacher with 20 Arms
 
-Ex. python main.py --mode training --type 1 –agent 1
+Ex. python main.py --mode training --type 1 –agent 2
 
 
 ### Directory Structure
@@ -151,7 +150,7 @@ Ex. python main.py --mode training --type 1 –agent 1
 
 
 * and during training mode we save loss and rewards to finally plot them one the game finish, which is either after 1000
-episodes or where the agent reach 35+  as reward in training
+episodes or where the agent reach 35+ as reward in training
 
 Ex. Rewards
 ![rewards](./images/Picture3.png)
@@ -176,12 +175,12 @@ All algorithms mode play score with best policy
 
 ### Mode hp_tuning
 
-In mode hp_tuning and using library Hyperopt library, I setup an example of how to optimize parameters of an agent 
+In mode hp_tuning and using library Hyperopt library, I set up an example of how to optimize parameters of an agent 
 using Bayesian Optimization. It it’s just a simple example but give you a grasp of how we can optimize the 
 parameters. There are other frameworks to optimize parameters like RL Baselines3 Zoo if we use Stable baselines library 
 or Ray for unity RL agents, but here as this is a tailored environment, I decided to use a general optimization framework 
 and also learn how to use it in Deep RL.
-Here in this simple configuration, I am optimizing 3 parameters of the Vanilla DQN agent model and I limit the trials 
+Here in this simple configuration, I am optimizing 3 parameters of the DDPG agent model and I limit the trials 
 to 30 for this experiment
 
 ![hp](./images/hp.png)
