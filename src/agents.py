@@ -1007,7 +1007,7 @@ class Agent_D4PG():
     def distr_projection(self, next_distr_v, rewards_v, dones_mask_t, gamma):
         """
 
-        The code is referred from
+        The code is referred and adapted from
         1. https://github.com/PacktPublishing/Deep-Reinforcement-Learning-Hands-On/tree/master/Chapter14
 
         :param next_distr_v:
@@ -1089,6 +1089,23 @@ class Agent_D4PG():
         torch.save(self.critic_local.state_dict(), folder + f'checkpoint_critic_{algo}.pth')
 
 def agent_train(env,brain_name, agent, n_agents ,algo, num_episodes):
+    """
+    train agent
+    :param env: unity environtment
+    :type env:
+    :param brain_name: from unity
+    :type brain_name: string
+    :param agent: intance of agent object look above the diferent agent classes
+    :type agent: Agent_DDPG, Agent_TD3 , Agent_TD3_4, Agent_D4PG
+    :param n_agents: number of arms
+    :type n_agents: int
+    :param algo: type of algo. Command line argument
+    :type algo: string
+    :param num_episodes: number of episodes
+    :type num_episodes: 
+    :return:
+    :rtype:
+    """
     scores = []
     loss_actor = []
     loss_critic = []

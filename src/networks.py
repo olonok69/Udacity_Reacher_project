@@ -4,6 +4,13 @@ import torch
 import numpy as np
 
 def hidden_init(layer):
+    """
+    helper to initialize layer
+    :param layer: torch layer
+    :type layer:
+    :return:
+    :rtype:
+    """
     fan_in = layer.weight.data.size()[0]
     lim = 1. / np.sqrt(fan_in)
     return (-lim, lim)
@@ -19,7 +26,7 @@ class Actor_ddpg(nn.Module):
     def __init__(self, state_size, action_size, seed, fc1_units=256, fc2_units=128):
         """
         Initialize parameters and build model.
-
+            adapted from https://github.com/MrSyee/pg-is-all-you-need
             state_size (int): Dimension of each state
             action_size (int): Dimension of each action
             seed (int): Random seed
@@ -63,7 +70,7 @@ class Critic_ddpg(nn.Module):
     def __init__(self, state_size, action_size, seed, fcs1_units=256, fc2_units=128):
         """
         Initialize parameters and build model.
-
+            adapted from https://github.com/MrSyee/pg-is-all-you-need
             state_size (int): Dimension of each state
             action_size (int): Dimension of each action
             seed (int): Random seed
@@ -105,11 +112,13 @@ class Critic_ddpg(nn.Module):
 
 class Actor_TD3(nn.Module):
     """
+    adapted from https://github.com/MrSyee/pg-is-all-you-need
     Actor TD3 Class Policy Network
     """
     def __init__(self, in_dim: int, out_dim: int, init_w: float = 3e-3):
         """
         Initialize.
+
         """
         super(Actor_TD3, self).__init__()
 
@@ -138,6 +147,7 @@ class Actor_TD3(nn.Module):
 class Critic_TD3(nn.Module):
     """
     Critic TD3 Class Value Function Network
+    adapted from https://github.com/MrSyee/pg-is-all-you-need
     """
     def __init__(self, in_dim: int, init_w: float = 3e-3):
         """Initialize."""
@@ -171,11 +181,12 @@ class Critic_TD3(nn.Module):
 class Actor_D4PG(nn.Module):
     """
     Actor D4PG (Policy) Model.
+    Actor - return action value given states.
     """
     def __init__(self, state_size, action_size, seed, fc1_units=256, fc2_units=256):
         """
         Initialize parameters and build model.
-
+        adapted from https://github.com/schatty/d4pg-pytorch
         state_size (int): Dimension of each state
         action_size (int): Dimension of each action
         seed (int): Random seed
@@ -212,11 +223,13 @@ class Actor_D4PG(nn.Module):
 class CriticD4PG(nn.Module):
     """
     Critic D4PG (distribution) Model.
+    Critic - return Q value from given states and actions.
     """
 
     def __init__(self, state_size, action_size, seed, fc1_units=128, fc2_units=128, fc3_units=128,
                  n_atoms=51, v_min=-1, v_max=1):
         """Initialize parameters and build model.
+        adapted from https://github.com/schatty/d4pg-pytorch
         Params
         ======
             state_size (int): Dimension of each state
