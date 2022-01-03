@@ -184,7 +184,6 @@ class Actor_D4PG(nn.Module):
         self.seed = torch.manual_seed(seed)
         self.fc1 = nn.Linear(state_size, fc1_units)
         self.fc2 = nn.Linear(fc1_units, action_size)
-        self.b2 = nn.BatchNorm1d(action_size)
         self.tanh = nn.Tanh()
         self.reset_parameters()
 
@@ -205,9 +204,8 @@ class Actor_D4PG(nn.Module):
         :return: action
         :rtype: torch tensor
         """
-        x = F.leaky_relu(self.fc1(state))
-        x = F.leaky_relu(self.fc2(x))
-        x = self.b2(x)
+        x = F.relu(self.fc1(state))
+        x = F.relu(self.fc2(x))
         x = self.tanh(x)
         return x
 
@@ -216,7 +214,7 @@ class CriticD4PG(nn.Module):
     Critic D4PG (distribution) Model.
     """
 
-    def __init__(self, state_size, action_size, seed, fc1_units=128, fc2_units=128, fc3_units=128, fc4_units=128,
+    def __init__(self, state_size, action_size, seed, fc1_units=128, fc2_units=128, fc3_units=128,
                  n_atoms=51, v_min=-1, v_max=1):
         """Initialize parameters and build model.
         Params
@@ -254,9 +252,9 @@ class CriticD4PG(nn.Module):
         :return: Q-values
         :rtype: torch tensor :
         """
-        xs = F.leaky_relu(self.fc1(state))
+        xs = F.relu(self.fc1(state))
         x = torch.cat((xs, action), dim=1)
-        x = F.leaky_relu(self.fc2(x))
+        x = F.relu(self.fc2(x))
         x = self.fc3(x)
 
         return x

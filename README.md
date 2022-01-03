@@ -164,6 +164,9 @@ All algorithms Rewards. Solve the environment 35+ as reward on average 100 Episo
 
 ![all_scores](./images/scores_all.jpg)
 
+All algorithms number of episodes to solve the environment (reward 35+ average 100 episodes)
+
+![all_episodes](./images/number_episodes_all.jpg)
 
 All algorithms Time to win the Environtment (reward 35+ average 100 episodes)
 
@@ -204,8 +207,9 @@ to 30 for this experiment
 13. Hands-on Reinforcement Learning for Games (Book) Michael Lanham
 14. Grokking Deep Reinforcement Learning (Book) Miguel Morales
 15. Hands-on Reinforcement Learning with Python (book) by Sudharsan Ravichandiran
-16. binary sum-tree. See Appendix B.2.1. in https://arxiv.org/pdf/1511.05952.pdf. Adapted implementation from https://github.com/jaromiru/AI-blog/blob/master/SumTree.py  
-17. SegmentTree from OpenAi repository. https://github.com/openai/baselines/blob/master/baselines/common/segment_tree.py
-18. PER implementation. https://github.com/rlcode/per/blob/master/prioritized_memory.py
-19. https://pytorch.org/docs
+16. Deep Reinforcement Learning Hands-On (book) by Max Lapan
+17. binary sum-tree. See Appendix B.2.1. in https://arxiv.org/pdf/1511.05952.pdf. Adapted implementation from https://github.com/jaromiru/AI-blog/blob/master/SumTree.py  
+18. SegmentTree from OpenAi repository. https://github.com/openai/baselines/blob/master/baselines/common/segment_tree.py
+19. PER implementation. https://github.com/rlcode/per/blob/master/prioritized_memory.py
+20. https://pytorch.org/docs
 

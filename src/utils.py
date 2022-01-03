@@ -137,6 +137,26 @@ class ReplayBuffer:
 
         return (states, actions, rewards, next_states, dones)
 
+    def sample2(self):
+        """Randomly sample a batch of experiences from memory."""
+        experiences = random.sample(self.memory, k=self.batch_size)
+
+        states, actions, rewards, next_states, dones = [], [], [], [], []
+
+        for exp in experiences:
+            states.append(exp.state.squeeze(0))
+            actions.append(exp.action.squeeze(0))
+            rewards.append(exp.reward)
+            dones.append(exp.done)
+            next_states.append(exp.next_state.squeeze(0))
+
+        states_v = torch.Tensor(np.array(states, dtype=np.float32)).to(self.DEVICE)
+        actions_v = torch.Tensor(np.array(actions, dtype=np.float32)).to(self.DEVICE)
+        rewards_v = torch.Tensor(np.array(rewards, dtype=np.float32)).to(self.DEVICE)
+        next_states_v = torch.Tensor(np.array(next_states, dtype=np.float32)).to(self.DEVICE)
+        dones_v = torch.ByteTensor(dones).to(self.DEVICE)
+
+        return states_v, actions_v, rewards_v, next_states_v, dones_v
     def __len__(self):
         """
         Return the current size of internal memory.

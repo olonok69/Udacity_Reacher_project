@@ -424,7 +424,7 @@ class Agent_TD3():
         critic_loss.backward()
         self.critic_optimizer.step()
 
-        # ---------------------------- update actor ---------------------------- #
+        # Update actor #
         if self.total_step % self.update_step == 0:
             # Compute actor loss
             actions_pred = self.actor_local(states)
@@ -444,8 +444,6 @@ class Agent_TD3():
         else:
             self.losses_actor.append(torch.zeros(1))
 
-        # self.actor_loss = actor_loss.data
-        # self.critic_loss = critic_loss.data
         return
 
 
@@ -491,7 +489,9 @@ class Agent_TD3_4():
                  train=True,
                  mode='min'):
         """
-        TD3 Agent implementation
+        TD3 Agent implementation 4 critic estimators. use mode to select estimator
+        possible modes min, mean and median
+
         :param device: CPU or CUDA
         :type device: string
         :param state_size: env number of states (33)
@@ -664,7 +664,7 @@ class Agent_TD3_4():
         if self.train == True :
             self.total_step = episode + 1
         if self.total_step < self.initial_random_steps and self.train ==True:
-            pass
+            pass # not implemented for now
         state = torch.from_numpy(state).float().to(self.DEVICE)
         self.actor_local.eval()
         with torch.no_grad():
@@ -813,6 +813,7 @@ class Agent_D4PG():
                  lr_critic,
                  weight_decay,
                  algo,
+                 noise= True,
                  Vmax = 5,
                  Vmin = 0,
                  N_ATOMS = 51,
@@ -832,9 +833,9 @@ class Agent_D4PG():
         # algo number
         self.algo =algo
         # categorical parameters
-        self.vmax = Vmax
-        self.vmin = Vmin
-        self.n_atoms = N_ATOMS
+        self.vmax = Vmax # value max action
+        self.vmin = Vmin # value min action
+        self.n_atoms = N_ATOMS # number of bins for action distribution
         self.delta_z = (Vmax - Vmin) / (N_ATOMS - 1)
         # total steps count
         self.total_step = 0
@@ -842,6 +843,7 @@ class Agent_D4PG():
         self.n_agents = n_agents
         self.action_size = action_size
         self.seed = random.seed(random_seed)
+        self.epsilon = 0.3
 
         # Hyperparameters
         self.GAMMA = gamma
@@ -871,20 +873,21 @@ class Agent_D4PG():
         self.critic_target = CriticD4PG(state_size, action_size, random_seed, n_atoms=self.n_atoms, v_min=self.vmin,
                                         v_max=self.vmax).to(self.DEVICE)
         # initialize with its own Learning Rate
-        self.critic_optimizer = optim.Adam(self.critic_local.parameters(), lr=self.LR_CRITIC,
-                                           weight_decay=self.WEIGHT_DECAY)
+        self.critic_optimizer = optim.Adam(self.critic_local.parameters(), lr=self.LR_CRITIC)
 
         # Noise process
+        # Ornstein-Uhlenbeck process
+        self.add_noise=noise
         self.noise = OUNoise(self.action_size, self.seed)
 
         # Initialize time step (for updating every UPDATE_EVERY steps)
         self.t_step = 0
-        self.train_start = 2000
+        self.train_start = 2000 # case we need to use warming
         self.UPDATE_EVERY = UPDATE_EVERY
         # helpers for rewards and states
-        self.N_step = N_step
-        self.rewards_queue = deque(maxlen=self.N_step)
-        self.states_queue = deque(maxlen=self.N_step)
+        self.REWARD_STEPS  = N_step
+        self.rewards_queue = deque(maxlen=self.REWARD_STEPS)
+        self.states_queue = deque(maxlen=self.REWARD_STEPS)
         # losses
         self.losses_actor = []
         self.losses_critic = []
@@ -900,36 +903,54 @@ class Agent_D4PG():
     def step(self, state, action, reward, next_state, done):
         """Save experience in replay memory, and use random sample from buffer to learn."""
         # Save experience / reward
-        self.states_queue.appendleft([state, action])
-        #print(reward, self.GAMMA, self.N_step)
-        self.rewards_queue.appendleft(reward[0] * self.GAMMA ** self.N_step)
-        for i in range(len(self.rewards_queue)):
-            self.rewards_queue[i] = self.rewards_queue[i] / self.GAMMA
+        # self.states_queue.appendleft([state, action])
+        # #print(reward, self.GAMMA, self.N_step)
+        # self.rewards_queue.appendleft(reward[0] * self.GAMMA ** self.N_step)
+        # for i in range(len(self.rewards_queue)):
+        #     self.rewards_queue[i] = self.rewards_queue[i] / self.GAMMA
+        #
+        # if len(self.rewards_queue) >= self.N_step:  # N-steps return: r= r1+gamma*r2+..+gamma^(t-1)*rt
+        #     temps = self.states_queue.pop()
+        #     self.memory.add(temps[0], temps[1], sum(self.rewards_queue), next_state, done)
+        #     self.rewards_queue.pop()
+        #     if done:
+        #         self.states_queue.clear()
+        #         self.rewards_queue.clear()
+        # # If enough samples are available in memory, get random subset and learn
+        # self.t_step = (self.t_step + 1) % self.UPDATE_EVERY
+        # if self.t_step == 0:
+        #     if len(self.memory) > self.batch_size:
+        #         experiences = self.memory.sample()
+        #         self.learn(experiences, self.GAMMA)
 
-        if len(self.rewards_queue) >= self.N_step:  # N-steps return: r= r1+gamma*r2+..+gamma^(t-1)*rt
-            temps = self.states_queue.pop()
-            self.memory.add(temps[0], temps[1], sum(self.rewards_queue), next_state, done)
-            self.rewards_queue.pop()
-            if done:
-                self.states_queue.clear()
-                self.rewards_queue.clear()
-        # If enough samples are available in memory, get random subset and learn
-        self.t_step = (self.t_step + 1) % self.UPDATE_EVERY
-        if self.t_step == 0:
+        # Save experience / reward
+        self.memory.add(state, action, reward, next_state, done)
+
+        # activate learning every few steps
+        self.t_step = self.t_step + 1
+        if self.t_step % self.UPDATE_EVERY == 0:
+            # Learn, if enough samples are available in memory
             if len(self.memory) > self.batch_size:
-                experiences = self.memory.sample()
-                self.learn(experiences, self.GAMMA)
+                for _ in range(10):  # update 10 times per learning
+                    experiences = self.memory.sample2()
+                    self.learn(experiences, self.GAMMA)
 
     def act(self, state, add_noise=False):
         """Returns actions for given state as per current policy."""
+
         state = torch.tensor(state).float().to(self.DEVICE)
         self.actor_local.eval()
         with torch.no_grad():
             action = self.actor_local(state).cpu().data.numpy()
         self.actor_local.train()
-        if add_noise:
-            action += self.noise.sample()
-        return np.squeeze(np.clip(action, -1.0, 1.0))
+        if self.add_noise and self.train:
+            # add noise from Ornstein-Uhlenbeck process. only during training
+            #action += self.noise.sample()
+            action += self.epsilon * np.random.normal(size=action.shape)
+            action = np.clip(action, -1.0, 1.0)
+        elif self.train == False:
+            action = np.clip(action, -1.0, 1.0)
+        return action
 
 
 
@@ -954,13 +975,14 @@ class Agent_D4PG():
         Q_targets_next = self.critic_target(next_states, actions_next)
 
         Q_targets_next = F.softmax(Q_targets_next, dim=1)
-        Q_targets_next = self.distr_projection(Q_targets_next, rewards, dones, gamma ** self.N_step)
+        Q_targets_next = self.distr_projection(Q_targets_next, rewards, dones, gamma ** self.REWARD_STEPS)
         Q_targets_next = -F.log_softmax(Q_expected, dim=1) * Q_targets_next
         critic_loss = Q_targets_next.sum(dim=1).mean()
 
         # Minimize the loss
         self.critic_optimizer.zero_grad()
         critic_loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.critic_local.parameters(), 1)
         self.critic_optimizer.step()
 
         # ---------------------------- update actor ---------------------------- #
@@ -984,6 +1006,9 @@ class Agent_D4PG():
 
     def distr_projection(self, next_distr_v, rewards_v, dones_mask_t, gamma):
         """
+
+        The code is referred from
+        1. https://github.com/PacktPublishing/Deep-Reinforcement-Learning-Hands-On/tree/master/Chapter14
 
         :param next_distr_v:
         :type next_distr_v:
@@ -1100,10 +1125,10 @@ def agent_train(env,brain_name, agent, n_agents ,algo, num_episodes):
         loss_actor.append(np.mean(agent.losses_actor))
         loss_critic.append(np.mean(agent.losses_critic))
         scores_window.append(np.mean(score))
-
-        print('\rEpisode: \t{} \tScore: \t{:.2f} \tAverage Score: \t{:.2f} \tLoss critic: \t{:.2f} '
-              '\tloss Actor: \t{:.2f}'.format(episode, np.mean(score), np.mean(scores_window), np.mean(loss_critic)
-                                                    ,np.mean(loss_actor)), end="")
+        if episode % 100 == 0:
+            print('\rEpisode: \t{} \tScore: \t{:.2f} \tAverage Score: \t{:.2f} \tLoss critic: \t{:.2f} '
+                  '\tloss Actor: \t{:.2f}'.format(episode, np.mean(score), np.mean(scores_window), np.mean(loss_critic)
+                                                        ,np.mean(loss_actor)), end="")
 
         if np.mean(scores_window) >= 35.0:
             # if the agent hit 35 as score mean we consider solved the enviroment and we save the model in models

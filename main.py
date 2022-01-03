@@ -160,22 +160,27 @@ def main():
 
         time1 = time.time()
         # rewrite hyper-parameters
-        Vmax = 5
-        Vmin = 0
+        TAU = 1e-3  # for soft update of target parameters
+        LR_ACTOR = 1e-4  # learning rate of the actor
+        LR_CRITIC = 1e-4  # learning rate of the critic
+        Vmax = 10
+        Vmin = -10
         N_ATOMS = 51
         N_step = 1
-        UPDATE_EVERY = 2
+        UPDATE_EVERY = 15
         BATCH_SIZE = 64
-        num_episodes= 10000
+        num_episodes= 10000 # increase number of episodes as most likely we will use more than 1000
         agent = Agent_D4PG(
             device,
             state_size, n_agents, action_size, 4,
             BUFFER_SIZE, BATCH_SIZE, GAMMA, TAU, LR_ACTOR, LR_CRITIC, WEIGHT_DECAY,
-            algo, Vmax, Vmin, N_ATOMS, N_step,UPDATE_EVERY,
-             CHECKPOINT_FOLDER, True,)
+            algo, True, Vmax, Vmin, N_ATOMS, N_step,UPDATE_EVERY,
+            CHECKPOINT_FOLDER, True,)
         scores, loss_actor, loss_critic, mode = agent_train(env, brain_name, agent, n_agents, algo, num_episodes)
         time2 = time.time()
         times = time2 - time1
+        # save outcomes for plotting
+        save_pickle(outputs, scores, loss_actor, loss_critic, mode, fname, algo, times)
         env.close()
     elif args.mode == "training" and algo == "6":  # TD3 4 Critics median estimate selection
         time1 = time.time()
