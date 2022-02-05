@@ -1,11 +1,13 @@
 import torch
-
+from torch.utils.tensorboard import SummaryWriter
 from src.networks import *
 from src.utils import *
 import torch.optim as optim
 import os
 import random
+import copy
 from torch.autograd import Variable
+from torch.cuda.amp.grad_scaler import GradScaler
 
 
 class Agent_DDPG():
@@ -1088,6 +1090,675 @@ class Agent_D4PG():
         torch.save(self.actor_local.state_dict(), folder + f'checkpoint_actor_{algo}.pth')
         torch.save(self.critic_local.state_dict(), folder + f'checkpoint_critic_{algo}.pth')
 
+class Agent_A2C():
+    def __init__(self,
+                 device,
+                 state_size,
+                 n_agents,
+                 action_size,
+                 random_seed,
+                 gamma,
+                 lrate,
+                 n_steps,
+                 algo,
+                 checkpoint_folder = './checkpoints/',
+                 train = True,
+                 mode='a2c'):
+
+
+
+        # steps per trayectory
+        self.n_steps = n_steps
+        self.train = train # training or play
+        self.DEVICE = device # CPU/GPU
+        self.algo = algo # Type algo
+        self.mode = mode # Mode (only in TD3, here name of algo)
+
+        self.state_size = state_size
+        self.n_agents = n_agents
+        self.action_size = action_size
+        self.seed = random.seed(random_seed)
+
+        # Hyperparameters
+
+        self.gamma = gamma
+        self.LR = lrate
+        self.CHECKPOINT_FOLDER = checkpoint_folder
+        # Actor Network (with Target Network)
+        self.model = A2CModel(self.state_size, self.action_size,  self.DEVICE).to(self.DEVICE)
+        self.optimizer = optim.Adam(self.model.parameters(), lr=self.LR)
+
+        # load models in test mode
+        if os.path.isfile(self.CHECKPOINT_FOLDER + f'checkpoint_model_{self.mode}_{self.algo}.pth') \
+                and self.train==False:
+            # load models from files
+            self.model.load_state_dict(torch.load(self.CHECKPOINT_FOLDER +
+                                                        f'checkpoint_model_{self.mode}_{self.algo}.pth'))
+
+
+        self.losses_model = []
+
+
+    def learn(self, batch_s, batch_a, batch_v_t):
+        '''
+        Params
+        ======
+            batch_s (T, n_process, state_size) (numpy)
+            batch_a (T, n_process, action_size) (numpy): batch of actions
+            batch_v_t (T, n_process) (numpy): batch of n-step rewards (aks target value)
+            model (object): A2C model
+            optimizer (object): model parameter optimizer
+        Returns
+        ======
+            total_loss (int): mean actor-critic loss for each batch
+        '''
+
+        batch_s_ = torch.from_numpy(batch_s).float().to(self.DEVICE)
+        batch_s_ = batch_s_.view(-1, batch_s.shape[-1])  # shape from (T,n_process,state_size) -> (TxN, state_size)
+
+        batch_a_ = torch.from_numpy(batch_a).float().to(self.DEVICE)
+        batch_a_ = batch_a_.view(-1, batch_a.shape[-1])  # shape from (T,n_process,action_size) -> (TxN, action_size)
+
+        values = self.model.get_state_value(batch_s_)  # shape (TxN,)
+        values = values.view(*batch_s.shape[:2])  # shape (T,n)
+
+        # pytorch's problem of negative stride -> require .copy() to create new numpy
+        batch_v_t_ = torch.from_numpy(batch_v_t.copy()).float().to(self.DEVICE)
+        td = batch_v_t_ - values  # shape (T, n_process) (tensor)
+        c_loss = td.pow(2).mean()
+
+        mus, stds, log_probs = self.model.get_action_prob(batch_s_, batch_a_)
+        log_probs_ = log_probs.view(*batch_a.shape[:2])  # shape from (TxN,) -> (T,n) (tensor)
+
+        a_loss = -((log_probs_ * td.detach()).mean())
+        total_loss = c_loss + a_loss
+
+        self.optimizer.zero_grad()
+        total_loss.backward()
+        self.optimizer.step()
+
+        losses = total_loss.detach().cpu().data.numpy()
+        # record loss
+        self.losses_model.append(losses.item())
+        means= mus.detach().cpu().data.numpy()
+        stds = stds.cpu().data.numpy()
+        # stds is constnat -> no gradient, no detach()
+        return losses, means, stds
+
+    def checkpoint(self,algo, folder):
+        torch.save(self.model.state_dict(), folder + f'checkpoint_model_{self.mode}_{algo}.pth')
+
+class Agent_A2C_b:
+
+    def __init__(self,
+                 state_dim,  # dimension of the state vector
+                 action_dim,  # dimension of the action vector
+                 num_envs,  # number of parallel agents (20 in this experiment)
+                 device,
+                 algo,
+                 rollout_length=5,  # steps to sample before bootstraping
+                 lr=1e-4,  # learning rate
+                 lr_decay=.95,  # learning rate decay rate
+                 gamma=.99,  # reward discount rate
+                 value_loss_weight=1.0,  # strength of value loss
+                 gradient_clip=5,  # threshold of gradient clip that prevent exploding
+                 checkpoint_folder='./checkpoints/',
+                 train=True,
+                 mode='a2c'
+                 ):
+        self.model = ActorCriticNetwork_A2C(state_dim, action_dim).to(device=device)
+        self.optimizer = optim.Adam(self.model.parameters(), lr=lr)
+        self.lr = lr
+        self.lr_decay = lr_decay
+        self.gamma = gamma
+        self.total_steps = 0
+        self.n_envs = num_envs
+        self.value_loss_weight = value_loss_weight
+        self.gradient_clip = gradient_clip
+        self.rollout_length = rollout_length
+        self.total_steps = 0
+        self.device = device  # CPU/GPU
+        self.train = train  # training or play
+        self.CHECKPOINT_FOLDER = checkpoint_folder
+        self.algo = algo  # Type algo
+        self.mode = mode  # Mode (only in TD3, here name of algo)
+        self.losses = []
+        self.scaler= GradScaler()
+        self.train= train
+
+        if os.path.isfile \
+                    (self.CHECKPOINT_FOLDER + f'checkpoint_critic_{self.mode}_{self.algo}.pth') and self.train == False:
+            self.model.load_state_dict(torch.load(self.CHECKPOINT_FOLDER +
+                                                  f'checkpoint_critic_{self.mode}_{self.algo}.pth'))
+
+
+    def sample_action(self, state):
+        """
+        Sample action along with outputting the log probability and state values, given the states
+        """
+        state = torch.from_numpy(state).float().to(device=self.device)
+        action, log_prob, state_value = self.model(state)
+        return action, log_prob, state_value
+
+    def update_model(self, experience):
+        """
+        Updates the actor critic network given the experience
+        experience: list [[action,reward,log_prob,done,state_value]]
+        """
+        processed_experience = [None] * (len(experience) - 1)
+
+        _advantage = torch.tensor(np.zeros((self.n_envs, 1))).float().to(device=self.device)  # initialize advantage Tensor
+        _return = experience[-1][-1].detach()  # get returns
+        for i in range(len(experience) - 2, -1, -1):  # iterate from the last step
+            _action, _reward, _log_prob, _not_done, _value = experience[i]  # get training data
+            _not_done = torch.tensor(_not_done, device=self.device).unsqueeze(
+                1).float()  # masks indicating the episodes not finished
+            _reward = torch.tensor(_reward, device=self.device).unsqueeze(1)  # get the rewards of the parallel agents
+            _next_value = experience[i + 1][-1]  # get the next states
+            _return = _reward + self.gamma * _not_done * _return  # compute discounted return
+            _advantage = _reward + self.gamma * _not_done * _next_value.detach() - _value.detach()  # advantage
+            processed_experience[i] = [_log_prob, _value, _return, _advantage]
+
+        log_prob, value, returns, advantages = map(lambda x: torch.cat(x, dim=0), zip(*processed_experience))
+        policy_loss = -log_prob * advantages  # loss of the actor
+        #value_loss = 0.5 * (returns - value).pow(2)  # loss of the critic (MSE)
+        value_loss =F.smooth_l1_loss(returns, value)  # loss of the critic (MSE)
+        loss  = (policy_loss + self.value_loss_weight * value_loss).mean()
+
+        # record loss
+        self.losses.append(loss.item())
+
+        self.optimizer.zero_grad()
+        self.scaler.scale(loss).backward()  # total loss
+        # Unscales the gradients of optimizer's assigned params in-place
+        self.scaler.unscale_(self.optimizer)
+        nn.utils.clip_grad_norm_(self.model.parameters(), self.gradient_clip)  # clip gradient
+        self.scaler.step(self.optimizer)
+        self.scaler.update()
+
+        self.total_steps += self.rollout_length * self.n_envs
+
+    def act(self, state):
+        """
+        Conduct an action given input state vector
+        Used in eveluation
+        """
+        state = torch.from_numpy(state).float().to(device=self.device)
+        self.model.eval()
+        action, _, _ = self.model(state)
+        self.model.train()
+        return action
+
+    def reset(self):
+        self.model.reset_parameters()
+        #pass
+
+    def save(self, path):
+        """
+        Save state_dict of the model
+        """
+        #torch.save({"state_dict": self.model.state_dict}, path)
+        torch.save(self.model.state_dict(), path)
+    #
+
+class Agent_SAC():
+
+    def __init__(self,
+                 state_size,
+                 action_size,
+                 lr,
+                 gamma,
+                 batch_size,
+                 buffer_size,
+                 alpha,
+                 tau,
+                 target_update_interval,
+                 gradient_steps,
+                 n_agents,
+                 device,
+                 algo,
+                 checkpoint_folder='./checkpoints/',
+                 train=True,
+                 mode='sac'
+                 ):
+
+        self.state_size = state_size
+        self.action_size = action_size
+        self.n_agents = n_agents
+        self.device = device
+        self.lr = lr
+        self.gamma = gamma
+        self.batch_size = batch_size
+        self.buffer_size = buffer_size
+        self.alpha = alpha
+        self.tau = tau
+        self.target_update_interval = target_update_interval
+        self.gradient_steps = gradient_steps
+        self.train = train
+        self.mode = "SAC"
+        self.checkpoint_folder= checkpoint_folder
+        self.scaler = GradScaler()
+        self.gradient_clip = 5
+        self.seed = np.random.seed(4)
+
+
+        # algo number
+        self.algo = algo
+        self.mode = mode
+
+        self.value_max_grad_norm = float('inf')
+        self.policy_max_grad_norm = float('inf')
+
+        self.critic1 = QNetwork(self.seed, self.state_size, self.action_size, 256).to(device=self.device)
+        self.critic_optim1 = optim.Adam(self.critic1.parameters(), lr=lr)
+        self.critic2 = QNetwork(self.seed, self.state_size, self.action_size, 256).to(device=self.device)
+        self.critic_optim2 = optim.Adam(self.critic2.parameters(), lr=lr)
+        self.critic3 = QNetwork(self.seed, self.state_size, self.action_size, 256).to(device=self.device)
+        self.critic_optim3 = optim.Adam(self.critic3.parameters(), lr=lr)
+        self.critic4 = QNetwork(self.seed, self.state_size, self.action_size, 256).to(device=self.device)
+        self.critic_optim4 = optim.Adam(self.critic4.parameters(), lr=lr)
+
+        self.critic_target1 = QNetwork(self.seed, self.state_size, self.action_size, 256).to(self.device)
+        hard_update(self.critic_target1, self.critic1)
+        self.critic_target2 = QNetwork(self.seed, self.state_size, self.action_size, 256).to(self.device)
+        hard_update(self.critic_target2, self.critic2)
+        self.critic_target3 = QNetwork(self.seed, self.state_size, self.action_size, 256).to(self.device)
+        hard_update(self.critic_target3, self.critic3)
+        self.critic_target4 = QNetwork(self.seed, self.state_size, self.action_size, 256).to(self.device)
+        hard_update(self.critic_target4, self.critic4)
+
+
+
+
+        # Initialize Replay Memory
+        #self.memory = ReplayBuffer_2(self.action_size, self.buffer_size, self.batch_size, 0)
+        self.memory = ReplayBuffer(device, action_size, self.buffer_size, self.batch_size, 0)
+
+        self.target_entropy = -torch.prod(torch.Tensor(self.action_size).to(self.device)).item()
+        self.log_alpha = torch.zeros(1, requires_grad=True, device=self.device)
+        self.alpha_optim = optim.Adam([self.log_alpha], lr=0.001)
+
+        self.policy = GaussianPolicy(self.seed, self.state_size, self.action_size,
+                                     256).to(self.device)
+        self.policy_optim = optim.Adam(self.policy.parameters(), lr=0.0005)
+
+        # Step counter
+        self.step_counter = 0
+        #self.writer = SummaryWriter()
+
+        self.policy_losses = []
+        self.alpha_losses = []
+        # is train is  False , load trained model from folder
+        if os.path.isfile(self.checkpoint_folder + f'checkpoint_policy_{self.algo}_{self.mode}.pth') \
+            and self.train == False:
+            self.policy.load_state_dict(torch.load(self.checkpoint_folder +
+                                                           f'checkpoint_policy_{self.algo}_{self.mode}.pth'))
+
+    def checkpoint(self, algo, folder):
+        torch.save(self.policy.state_dict(), folder + f'checkpoint_policy_{self.algo}_{self.mode}.pth')
+
+    def reset(self):
+        #self.model.reset_parameters()
+        pass
+
+
+    def select_action(self, state, eval=False):
+        state = torch.FloatTensor(state).to(self.device).unsqueeze(0)
+        if self.train == False:
+            _, _, action = self.policy.sample(state)
+        else:
+            action, _, _ = self.policy.sample(state)
+        action = torch.clamp(action, -1, 1)
+        return action.detach().cpu().numpy()[0]
+
+    def learn(self):
+        self.train =True
+        for _ in range(self.gradient_steps):
+
+            state_batch, action_batch, reward_batch, next_state_batch, mask_batch = self.memory.sample()
+
+            #print(next_state_batch.shape, state_batch.shape)
+            current_actions, logpi_s, _ = self.policy.sample(state_batch)
+
+            target_alpha = (logpi_s + self.target_entropy).detach()
+            alpha_loss = -(self.log_alpha * target_alpha).mean()
+
+            self.alpha_optim.zero_grad()
+            alpha_loss.backward()
+            self.alpha_optim.step()
+            alpha = self.log_alpha.exp()
+            # add loss
+            self.alpha_losses.append(alpha_loss)
+
+
+
+            current_q_sa_a1 = self.critic1(state_batch, current_actions)
+            current_q_sa_a2 = self.critic2(state_batch, current_actions)
+            current_q_sa_b1 = self.critic3(state_batch, current_actions)
+            current_q_sa_b2 = self.critic4(state_batch, current_actions)
+            current_q_sa_a = torch.min(current_q_sa_a1, current_q_sa_b1)
+            current_q_sa_b = torch.min(current_q_sa_a2, current_q_sa_b2)
+            current_q_sa = torch.min(current_q_sa_a, current_q_sa_b)
+            policy_loss = (alpha * logpi_s - current_q_sa.detach()).mean()
+
+
+            # Q loss
+            ap, logpi_sp, _ = self.policy.sample(next_state_batch)
+            q_spap_a1= self.critic_target1(next_state_batch, ap)
+            q_spap_a2 = self.critic_target2(next_state_batch, ap)
+            q_spap_b1 = self.critic_target3(next_state_batch, ap)
+            q_spap_b2 = self.critic_target4(next_state_batch, ap)
+            q_spap_a = torch.min(q_spap_a1, q_spap_a2)
+            q_spap_b = torch.min(q_spap_b1, q_spap_b2)
+            q_spap = torch.min(q_spap_a, q_spap_b) - alpha * logpi_sp
+            target_q_sa = (reward_batch + self.gamma * q_spap * (1 - mask_batch)).detach()
+
+            q_sa_a1 = self.critic1(state_batch, action_batch)
+            q_sa_a2 = self.critic2(state_batch, action_batch)
+            q_sa_b1 = self.critic3(state_batch, action_batch)
+            q_sa_b2 = self.critic4(state_batch, action_batch)
+
+            qa_loss1 = (q_sa_a1 - target_q_sa).pow(2).mul(0.5).mean()
+            qa_loss2 = (q_sa_a2 - target_q_sa).pow(2).mul(0.5).mean()
+            qb_loss1 = (q_sa_b1 - target_q_sa).pow(2).mul(0.5).mean()
+            qb_loss2 = (q_sa_b2 - target_q_sa).pow(2).mul(0.5).mean()
+
+            self.critic_optim1.zero_grad()
+            qa_loss1.backward()
+            torch.nn.utils.clip_grad_norm_(self.critic1.parameters(),
+                                           self.value_max_grad_norm)
+            self.critic_optim1.step()
+
+            self.critic_optim2.zero_grad()
+            qa_loss2.backward()
+            torch.nn.utils.clip_grad_norm_(self.critic2.parameters(),
+                                           self.value_max_grad_norm)
+            self.critic_optim2.step()
+
+            self.critic_optim3.zero_grad()
+            qb_loss1.backward()
+            torch.nn.utils.clip_grad_norm_(self.critic3.parameters(),
+                                           self.value_max_grad_norm)
+            self.critic_optim3.step()
+
+            self.critic_optim4.zero_grad()
+            qb_loss2.backward()
+            torch.nn.utils.clip_grad_norm_(self.critic4.parameters(),
+                                           self.value_max_grad_norm)
+            self.critic_optim4.step()
+
+            self.policy_optim.zero_grad()
+            policy_loss.backward()
+            torch.nn.utils.clip_grad_norm_(self.policy.parameters(),
+                                           self.policy_max_grad_norm)
+            self.policy_optim.step()
+            self.policy_losses.append(policy_loss)
+            #
+            soft_update(self.critic_target1, self.critic1, self.tau)
+            soft_update(self.critic_target2, self.critic2, self.tau)
+            soft_update(self.critic_target3, self.critic3, self.tau)
+            soft_update(self.critic_target4, self.critic4, self.tau)
+            return
+
+
+
+    def soft_update(self, local_model, target_model, tau=0.005):
+        """Soft update model parameters.
+        θ_target = τ*θ_local + (1 - τ)*θ_target
+        Params
+        ======
+            local_model (PyTorch model): weights will be copied from
+            target_model (PyTorch model): weights will be copied to
+            tau (float): interpolation parameter
+        """
+        for target_param, local_param in zip(target_model.parameters(), local_model.parameters()):
+            target_param.data.copy_(
+                self.tau * local_param.data + (1.0 - self.tau) * target_param.data)
+
+    def step(self, states, actions, rewards, next_states, dones):
+
+        #for i in range(self.n_agents):
+        self.memory.add(states, actions, rewards, next_states, dones)
+        self.step_counter += 1
+
+        if self.step_counter >= self.target_update_interval and len(self.memory) > self.batch_size:
+            self.learn()
+            self.step_counter = 0
+
+class soft_actor_critic_agent(object):
+    def __init__(self, num_inputs, action_space,
+                 device, hidden_size, seed, lr, gamma, tau, alpha):
+
+        self.gamma = gamma
+        self.tau = tau
+        self.alpha = alpha
+
+        self.device = device
+        self.seed = seed
+        self.seed = torch.manual_seed(seed)
+
+        torch.cuda.manual_seed(seed)
+        # torch.cuda.manual_seed_all(seed)
+        # torch.backends.cudnn.deterministic=True
+
+        self.critic = QNetwork(seed, num_inputs, action_space, hidden_size).to(device=self.device)
+        self.critic_optim = optim.Adam(self.critic.parameters(), lr=lr)
+
+        self.critic_target = QNetwork(seed, num_inputs, action_space, hidden_size).to(self.device)
+        hard_update(self.critic_target, self.critic)
+
+        # Target Entropy = −dim(A) (e.g. , -6 for HalfCheetah-v2) as given in the paper
+        self.target_entropy = -torch.prod(torch.Tensor(action_space).to(self.device)).item()
+        self.log_alpha = torch.zeros(1, requires_grad=True, device=self.device)
+        self.alpha_optim = optim.Adam([self.log_alpha], lr=lr)
+        self.policy = GaussianPolicy(seed, num_inputs, action_space,
+                                     hidden_size, action_space).to(self.device)
+        self.policy_optim = optim.Adam(self.policy.parameters(), lr=lr)
+
+    def select_action(self, state, eval=False):
+        state = torch.FloatTensor(state).to(self.device).unsqueeze(0)
+        if eval == False:
+            action, _, _ = self.policy.sample(state)
+        else:
+            _, _, action = self.policy.sample(state)
+        return action.detach().cpu().numpy()[0]
+
+    def update_parameters(self, memory, batch_size, updates):
+        # Sample a batch from memory
+        state_batch, action_batch, reward_batch, next_state_batch, mask_batch = memory.sample(batch_size=batch_size)
+
+        state_batch = torch.FloatTensor(state_batch).to(self.device)
+        next_state_batch = torch.FloatTensor(next_state_batch).to(self.device)
+        action_batch = torch.FloatTensor(action_batch).to(self.device)
+        reward_batch = torch.FloatTensor(reward_batch).to(self.device).unsqueeze(1)
+        mask_batch = torch.FloatTensor(mask_batch).to(self.device).unsqueeze(1)
+
+        with torch.no_grad():
+            next_state_action, next_state_log_pi, _ = self.policy.sample(next_state_batch)
+            qf1_next_target, qf2_next_target = self.critic_target(next_state_batch, next_state_action)
+            min_qf_next_target = torch.min(qf1_next_target, qf2_next_target) - self.alpha * next_state_log_pi
+            next_q_value = reward_batch + mask_batch * self.gamma * (min_qf_next_target)
+
+        # Two Q-functions to mitigate positive bias in the policy improvement step
+        qf1, qf2 = self.critic(state_batch, action_batch)
+        qf1_loss = F.mse_loss(qf1, next_q_value)
+        qf2_loss = F.mse_loss(qf2, next_q_value)
+
+        pi, log_pi, _ = self.policy.sample(state_batch)
+
+        qf1_pi, qf2_pi = self.critic(state_batch, pi)
+        min_qf_pi = torch.min(qf1_pi, qf2_pi)
+
+        policy_loss = ((self.alpha * log_pi) - min_qf_pi).mean()
+
+        self.critic_optim.zero_grad()
+        qf1_loss.backward()
+        self.critic_optim.step()
+
+        self.critic_optim.zero_grad()
+        qf2_loss.backward()
+        self.critic_optim.step()
+
+        self.policy_optim.zero_grad()
+        policy_loss.backward()
+        self.policy_optim.step()
+
+        alpha_loss = -(self.log_alpha * (log_pi + self.target_entropy).detach()).mean()
+
+        self.alpha_optim.zero_grad()
+        alpha_loss.backward()
+        self.alpha_optim.step()
+
+        self.alpha = self.log_alpha.exp()
+        alpha_tlogs = self.alpha.clone()  # For TensorboardX logs
+
+        soft_update(self.critic_target, self.critic, self.tau)
+
+class Agent_PPO():
+    def __init__(self, env, hyper_params):
+        self.env = env
+        self.num_agents = env.num_agents
+        self.action_size = env.action_space_size
+        self.state_size = env.state_size
+        self.hyper_params = hyper_params
+        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+        # Learning objects
+        self.memory = Memory(hyper_params['memory_size'], hyper_params['batch_size'])
+        self.policy = ActorCritic_PPO(self.state_size, self.action_size, seed=0)
+
+        self.opt = torch.optim.Adam(self.policy.parameters(), 3e-4)
+
+        # Starting Values
+        self.states = env.info.vector_observations
+        self.epsilon = hyper_params['epsilon']
+        self.c_entropy = hyper_params['c_entropy']
+        self.losses = []
+
+    def collect_trajectories(self):
+        done = False
+        states = self.env.info.vector_observations
+
+        state_list = []
+        reward_list = []
+        prob_list = []
+        action_list = []
+        value_list = []
+
+        # Random steps to start
+        if self.hyper_params['t_random'] > 0:
+            for _ in range(self.hyper_params['t_random']):
+                actions = np.random.randn(self.num_agents, self.action_size)
+                actions = np.clip(actions, -1, 1)
+                env_info = self.env.step(actions)
+                states = env_info.vector_observations
+
+        # Finish trajectory using policy
+        for t in range(self.hyper_params['t_max']):
+            states = torch.FloatTensor(states)
+            dist, values = self.policy(states)
+            actions = dist.sample()
+            probs = dist.log_prob(actions).sum(-1).unsqueeze(-1)
+
+            env_info = self.env.step(actions.cpu().detach().numpy())
+            next_states = env_info.vector_observations
+            rewards = env_info.rewards
+            dones = env_info.local_done
+
+            # store the result
+            state_list.append(states)
+            reward_list.append(rewards)
+            prob_list.append(probs)
+            action_list.append(actions)
+            value_list.append(values)
+
+            states = next_states
+
+            if np.any(dones):
+                done = True
+                break
+
+        value_arr = torch.stack(value_list)
+        reward_arr = torch.FloatTensor(np.array(reward_list)[:, :, np.newaxis])
+
+        advantage_list = []
+        return_list = []
+
+        _, next_value = self.policy(torch.FloatTensor(states))
+        returns = next_value.detach()
+
+        advantages = torch.FloatTensor(np.zeros((self.num_agents, 1)))
+        for i in reversed(range(len(state_list))):
+            returns = reward_arr[i] + self.hyper_params['discount'] * returns
+            td_error = reward_arr[i] + self.hyper_params['discount'] * next_value - value_arr[i]
+            advantages = advantages * self.hyper_params['gae_param'] * self.hyper_params['discount'] + td_error
+            next_value = value_arr[i]
+            advantage_list.insert(0, advantages.detach())
+            return_list.insert(0, returns.detach())
+
+        return_arr = torch.stack(return_list)
+        indices = return_arr >= np.percentile(return_arr, self.hyper_params['curation_percentile'])
+        indices = torch.squeeze(indices, dim=2)
+
+        advantage_arr = torch.stack(advantage_list)
+        state_arr = torch.stack(state_list)
+        prob_arr = torch.stack(prob_list)
+        action_arr = torch.stack(action_list)
+
+        self.memory.add({'advantages': advantage_arr[indices],
+                         'states': state_arr[indices],
+                         'log_probs_old': prob_arr[indices],
+                         'returns': return_arr[indices],
+                         'actions': action_arr[indices]})
+
+        rewards = np.sum(np.array(reward_list), axis=0)
+        return rewards, done
+
+    def update(self):
+        advantages_batch, states_batch, log_probs_old_batch, returns_batch, actions_batch = self.memory.categories()
+        actions_batch = actions_batch.detach()
+        log_probs_old_batch = log_probs_old_batch.detach()
+        advantages_batch = (advantages_batch - advantages_batch.mean()) / advantages_batch.std()
+
+        batch_indices = self.memory.sample()
+
+        # Gradient ascent
+        for _ in range(self.hyper_params['num_epochs']):
+            for batch_idx in batch_indices:
+                batch_idx = torch.LongTensor(batch_idx)
+
+                advantages_sample = advantages_batch[batch_idx]
+                states_sample = states_batch[batch_idx]
+                log_probs_old_sample = log_probs_old_batch[batch_idx]
+                returns_sample = returns_batch[batch_idx]
+                actions_sample = actions_batch[batch_idx]
+
+                dist, values = self.policy(states_sample)
+
+                log_probs_new = dist.log_prob(actions_sample).sum(-1).unsqueeze(-1)
+                entropy = dist.entropy().sum(-1).unsqueeze(-1).mean()
+                vf_loss = (returns_sample - values).pow(2).mean()
+
+                ratio = (log_probs_new - log_probs_old_sample).exp()
+                clipped_ratio = torch.clamp(ratio, 1 - self.epsilon, 1 + self.epsilon)
+                # Loss is negative for ascent.
+                # clipped_surrogate_loss = -torch.min(ratio * advantages_sample, clipped_ratio * advantages_sample).mean()
+                # loss = clipped_surrogate_loss - self.c_entropy * entropy + self.hyper_params['c_vf'] * vf_loss
+                clipped_surrogate_loss = torch.min(ratio * advantages_sample, clipped_ratio * advantages_sample).mean()
+                loss = -(clipped_surrogate_loss - (self.hyper_params['c_vf'] * vf_loss) + (self.c_entropy * entropy))
+
+                self.opt.zero_grad()
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(self.policy.parameters(), self.hyper_params['gradient_clip'])
+                self.opt.step()
+                self.losses.append(loss.item())
+
+        # Reduce clipping range to create smaller changes in policy over time
+        self.epsilon *= .999
+        # Reduce entropy coeffiecient to reduce entropy/exploration
+        self.c_entropy *= .995
+        return np.mean(self.losses)
+
 def agent_train(env,brain_name, agent, n_agents ,algo, num_episodes):
     """
     train agent
@@ -1102,7 +1773,7 @@ def agent_train(env,brain_name, agent, n_agents ,algo, num_episodes):
     :param algo: type of algo. Command line argument
     :type algo: string
     :param num_episodes: number of episodes
-    :type num_episodes: 
+    :type num_episodes:
     :return:
     :rtype:
     """
@@ -1159,3 +1830,373 @@ def agent_train(env,brain_name, agent, n_agents ,algo, num_episodes):
     plot_losses(loss_actor, algo, n_episodes, "actor", agent.mode)
     plot_losses(loss_critic, algo, n_episodes, "critic" ,agent.mode)
     return scores, loss_actor, loss_critic, agent.mode
+
+def agent_train_ac2(env,brain_name, agent, n_agents ,algo, num_episodes):
+    """
+
+    :param env:
+    :type env:
+    :param brain_name:
+    :type brain_name:
+    :param agent:
+    :type agent:
+    :param n_agents:
+    :type n_agents:
+    :param algo:
+    :type algo:
+    :param num_episodes:
+    :type num_episodes:
+    :return:
+    :rtype:
+    """
+    num_episodes = num_episodes
+    rollout_length = 5
+
+    total_rewards = []
+    loss_actor = []
+    avg_scores = []
+    max_avg_score = -1
+    max_score = -1
+    worsen_tolerance = 10  # for early-stopping training if consistently worsen for # episodes
+    rollout = []
+    for i_episode in range(1, num_episodes + 1):
+        env_inst = env.reset(train_mode=True)[brain_name]  # reset the environment
+
+        states = env_inst.vector_observations  # get the current state
+        scores = np.zeros(n_agents)  # initialize the score
+        dones = [False] * n_agents
+        steps_taken = 0
+        experience = []
+        while not np.any(dones):  # finish if any agent is done
+            steps_taken += 1
+            actions, log_probs, state_values = agent.sample_action(states)  # select actions for 20 envs
+            env_inst = env.step(actions.detach().cpu().numpy())[brain_name]  # send the actions to the environment
+            next_states = env_inst.vector_observations  # get the next states
+            rewards = env_inst.rewards  # get the rewards
+            dones = env_inst.local_done  # see if episode has finished
+            not_dones = [1 - done for done in dones]
+            experience.append([actions, rewards, log_probs, not_dones, state_values])
+            if steps_taken % rollout_length == 0:
+                agent.update_model(experience)
+                del experience[:]
+
+            scores += rewards  # update the scores
+            states = next_states  # roll over the states to next time step
+        episode_score = np.mean(scores)  # compute the mean score for 20 agents
+        episode_loss =  np.mean(agent.losses)
+        total_rewards.append(episode_score)
+        loss_actor.append(np.mean(agent.losses))
+
+        print("Episodic {} Score: {} loss: {}".format(i_episode, np.mean(scores), np.mean(episode_loss)))
+        if np.mean(scores) > max_score:
+            path = f"./checkpoints/checkpoint_critic_{agent.mode}_{algo}.pth"
+            agent.save(path)
+            max_score = np.mean(scores)
+
+        if len(total_rewards) % 100 == 0:  # record avg score for the latest 100 steps
+            latest_avg_score = sum(total_rewards[(len(total_rewards) - 100):]) / 100
+            print("100 Episodic Everage Score: {}".format(latest_avg_score))
+            avg_scores.append(latest_avg_score)
+
+        if sum(total_rewards[(len(total_rewards) - 100):]) / 100 >= 35.0:
+            # if the agent hit 35 as score mean we consider solved the enviroment and we save the model in models
+            path = f"./models/checkpoint_critic_{agent.mode}_{algo}.pth"
+            agent.save(path)
+            print(
+                '\nEnvironment solved in {:d} episodes!\tAverage Score: {:.2f}'.format(i_episode,
+                                                                                       np.mean(avg_scores)))
+            break
+    return  total_rewards, loss_actor, agent.mode
+
+def agent_train_ppo(env,brain_name, agent, n_agents ,algo, num_episodes):
+
+    def play_round(env, brain_name, policy, n_agents):
+        env_info = env.reset(train_mode=True)[brain_name]
+        states = env_info.vector_observations
+        scores = np.zeros(n_agents)
+        while True:
+            actions, _, _, _ = policy(states)
+            env_info = env.step(actions.cpu().detach().numpy())[brain_name]
+            next_states = env_info.vector_observations
+            rewards = env_info.rewards
+            dones = env_info.local_done
+            scores += env_info.rewards
+            states = next_states
+            if np.any(dones):
+                break
+
+        return np.mean(scores)
+
+    n_episodes = num_episodes
+    all_scores = []
+    averages = []
+    losses = []
+    last_max = 30.0
+
+    for episode in range(n_episodes):
+        env_info = env.reset(train_mode=True)[brain_name]  # reset the environment
+        agent.states = env_info.vector_observations
+
+
+        states = agent.states
+        loss = agent.step(states)
+        losses.append(loss)
+        last_mean_reward = play_round(env, brain_name, agent.model, n_agents)
+        all_scores.append(last_mean_reward)
+
+        last_average = np.mean(np.array(all_scores[-100:])) if len(all_scores) > 100 else np.mean(np.array(all_scores))
+
+        averages.append(last_average)
+        agent.checkpoint(algo, "./checkpoints/")
+
+        if last_average > last_max:
+            agent.checkpoint(algo, "./models/")
+            break
+
+        print('Episode: {} Total score this episode: {} Last {} average: {} loss: {}'.format(episode + 1,
+                                                                                             last_mean_reward,
+                                                                                             min(episode + 1, 100),
+                                                                                             last_average,
+                                                                                             loss))
+
+    return all_scores, averages,   losses, agent.mode
+
+def agent_train_sac(env,brain_name, agent, n_agents ,algo, num_episodes, BATCH_SIZE):
+
+    import progressbar as pb
+    def interact(action, num_agents):
+        action = action.reshape(num_agents, -1)
+        env_info = env.step(action)[brain_name]
+        next_state, reward, done = env_info.vector_observations, env_info.rewards, env_info.local_done
+        return next_state.reshape(num_agents, -1), np.array(reward).reshape(num_agents, -1), np.array(done).reshape(
+            num_agents, -1)
+
+    def reset(env, num_agents ):
+        state = env.reset()[brain_name].vector_observations.reshape(num_agents, -1)
+        return state
+
+    print_every = 100
+    scores = []  # list containing scores from each episode
+    scores_window = deque(maxlen=print_every)  # last 100 scores
+    widget = ['training loop: ', pb.Percentage(), ' ', pb.Bar(), ' ', pb.ETA()]
+    timer = pb.ProgressBar(widgets=widget, maxval=num_episodes).start()
+    brain = env.brains[brain_name]
+    action_size = brain.vector_action_space_size
+
+    frame_counter = 0
+    t_max = 1000
+
+    for i_episode in range(1, num_episodes + 1):
+        states = reset(env, n_agents)
+        score = 0
+        for t in range(t_max):
+            frame_counter += 1
+            if (frame_counter % 1000) != 0:
+                #actions = agent.act(states, i_episode)
+                actions = agent.select_action(states)
+                actions = np.clip(actions, -1, 1)
+            else:
+                actions = np.random.randn(n_agents, action_size)
+                actions = np.clip(actions, -1, 1)
+
+
+            next_states, rewards, dones = interact(actions, n_agents)
+
+            #if len(agent.memory) > BATCH_SIZE:
+            #print(len(agent.memory))
+            agent.step(states, actions, rewards, next_states, dones)
+            states = next_states
+            score += rewards.mean()
+            if np.any(dones):
+                break
+        scores_window.append(score)  # save most recent score
+        scores.append(score)  # save most recent score
+        #agent.writer.add_scalar('score/mean', score, i_episode)
+        print('\rEpisode {}\tScore : {:.2f}'.format(i_episode, score))
+        if i_episode % print_every == 0:
+            print('\rEpisode {}\tScore Mean: {:.2f}\tScore STD: {:.2f}'.format(i_episode, np.mean(scores_window),
+                                                                               np.std(scores_window)))
+        if np.mean(scores_window) >= 30:
+            print("Environment solved")
+            break
+
+        timer.update(i_episode)
+    return scores
+
+
+def sac_train(max_steps, threshold, env, start_steps, agent,memory, batch_size, brain_name):
+    def save(agent, directory, filename, episode, reward):
+        torch.save(agent.policy.state_dict(), '%s/%s_actor_%s_%s.pth' % (directory, filename, episode, reward))
+        torch.save(agent.critic.state_dict(), '%s/%s_critic_%s_%s.pth' % (directory, filename, episode, reward))
+
+    import time
+    total_numsteps = 0
+    updates = 0
+    num_episodes = 20000
+    updates = 0
+
+    time_start = time.time()
+    scores_deque = deque(maxlen=100)
+    scores_array = []
+    avg_scores_array = []
+    # brain = env.brains[env.brain_name]
+    # action_size = brain.vector_action_space_size
+    num_agents =  env.num_agents
+    for i_episode in range(num_episodes):
+        episode_reward = 0
+        episode_steps = 0
+        done = False
+        state = env.reset()
+
+        for step in range(max_steps):
+            if start_steps > total_numsteps:
+                action = np.random.randn(env.num_agents, env.action_space_size)  # Sample random action
+            else:
+                action = agent.select_action(state)  # Sample action from policy
+
+            if len(memory) > batch_size:
+                # Update parameters of all the networks
+                agent.update_parameters(memory, batch_size, updates)
+
+                updates += 1
+
+            #next_state, reward, done, _ = env.step(action)  # Step
+            env_info = env.step(action)
+            next_state, reward, done = env_info.vector_observations, env_info.rewards, env_info.local_done
+            next_state = next_state.reshape(num_agents, -1)
+            reward = np.array(reward).reshape(num_agents, -1)
+            done = np.array(done).reshape(num_agents, -1)
+
+            episode_steps += 1
+            total_numsteps += 1
+            episode_reward += reward
+
+            #mask = 1 if episode_steps == max_steps else float(not done)
+
+            memory.push(state, action, reward, next_state, done)  # Append transition to memory
+
+            state = next_state
+
+            if done.any():
+                break
+
+        scores_deque.append(episode_reward)
+        scores_array.append(episode_reward)
+        avg_score = np.mean(scores_deque)
+        avg_scores_array.append(avg_score)
+        max_score = np.max(scores_deque)
+
+        if i_episode % 100 == 0 and i_episode > 0:
+            reward_round = round(episode_reward, 2)
+            save(agent, 'checkpoints/sac', 'weights', str(i_episode), str(reward_round))
+
+        s = (int)(time.time() - time_start)
+
+        print(
+            "Ep.: {}, Total Steps: {}, Ep.Steps: {}, Score: {:.3f}, Avg.Score: {:.3f}, Max.Score: {:.3f}, Time: {:02}:{:02}:{:02}".
+            format(i_episode, total_numsteps, episode_steps, episode_reward, avg_score, max_score, s // 3600, s % 3600 // 60, s % 60))
+
+        if (avg_score > threshold):
+            print('Solved environment with Avg Score:  ', avg_score)
+            break
+
+    return scores_array, avg_scores_array
+
+
+def collect_trajectories(model, env, brain_name, init_states, episode_end, n_steps, device, gamma):
+    '''
+    Params
+    ======
+        model (object): A2C model
+        env (object): environment
+        brain_name (string): brain name of environment
+        init_states (n_process, state_size) (numpy): initial states for loop
+        episode_end (bool): tracker of episode end, default False
+        n_steps (int): number of steps for reward collection
+        device (string): cuda / cpu
+        gamma (float): horizon discount factor
+
+    Returns
+    =======
+        batch_s (T, n_process, state_size) (numpy): batch of states
+        batch_a (T, n_process, action_size) (numpy): batch of actions
+        batch_v_t (T, n_process) (numpy): batch of n-step rewards (aks target value)
+        accu_rewards (n_process,) (numpy): accumulated rewards for process (being summed up on all process)
+        init_states (n_process, state_size) (numpy): initial states for next batch
+        episode_end (bool): tracker of episode end
+    '''
+
+    batch_s = []
+    batch_a = []
+    batch_r = []
+
+    states = init_states
+    accu_rewards = np.zeros(init_states.shape[0])
+
+    t = 0
+    while True:
+        t += 1
+
+        model.eval()
+        with torch.no_grad():
+            states = torch.from_numpy(states).float().to(device)
+            actions_tanh, actions = model.get_action(states)
+        model.train()
+        # actions_tanh (n_process, action_size) (tensor), actions limited within (-1,1)
+        # actions (n_process, action_size) (tensor)
+
+        env_info = env.step(actions_tanh.cpu().data.numpy())[brain_name]
+        next_states = env_info.vector_observations
+        rewards = env_info.rewards
+        dones = env_info.local_done
+        # next_states (numpy array)
+        # rewards (list)
+        # dones (list)
+        rewards = np.array(rewards)
+        dones = np.array(dones)
+
+        accu_rewards += rewards
+
+        batch_s.append(states.cpu().data.numpy())  # final shape of batch_s (T, n_process, state_size) (list of numpy)
+        batch_a.append(actions.cpu().data.numpy())  # final shape of batch_a (T, n_process, action_size) (list of numpy)
+        batch_r.append(rewards)  # final shape of batch_r (T, n_process) (list of numpy array)
+
+        if dones.any() or t >= n_steps:
+            model.eval()
+            next_states = torch.from_numpy(next_states).float().to(device)
+            final_r = model.get_state_value(next_states).detach().cpu().data.numpy()  # final_r (n_process,) (numpy)
+            model.train()
+
+            for i in range(len(dones)):
+                if dones[i] == True:
+                    final_r[i] = 0
+                else:
+                    final_r[i] = final_r[i]
+
+            batch_v_t = []  # compute n-step rewards (aks target value)
+            batch_r = np.array(batch_r)
+
+            for r in batch_r[::-1]:
+                mean = np.mean(r)
+                std = np.std(r)
+                r = (r - mean) / (std + 0.0001)  # normalize rewards in n_process on each timestep
+                final_r = r + gamma * final_r
+                batch_v_t.append(final_r)
+            batch_v_t = np.array(batch_v_t)[::-1]  # final shape (T, n_process) (numpy)
+
+            break
+
+        states = next_states
+
+    if dones.any():
+        env_info = env.reset(train_mode=True)[brain_name]
+        init_states = env_info.vector_observations
+        episode_end = True
+
+    else:
+        init_states = next_states.cpu().data.numpy()  # if not done, continue batch collection from last states
+
+    batch_s = np.stack(batch_s)
+    batch_a = np.stack(batch_a)
+
+    return batch_s, batch_a, batch_v_t, np.sum(accu_rewards), init_states, episode_end
